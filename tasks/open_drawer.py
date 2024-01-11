@@ -1,9 +1,12 @@
+import os
+from PIL import Image
+import numpy as np
 from .base_task import BaseTask
 from typing import List
 from environment.parameters import *
 from omni.isaac.core.utils.string import find_unique_string_name
 from omni.isaac.core.utils.stage import add_reference_to_stage
-from omni.isaac.core.utils.prims import is_prim_path_valid,get_prim_at_path, get_all_matching_child_prims
+from omni.isaac.core.utils.prims import is_prim_path_valid, get_prim_at_path, get_all_matching_child_prims
 from omni.isaac.core.utils.semantics import add_update_semantics
 
 import omni
@@ -17,18 +20,36 @@ logger = logging.getLogger(__name__)
 
 
 class OpenDrawer(BaseTask):
-    def __init__(self, num_stages, horizon, stage_properties, cfg) -> None:
+    def __init__(self, num_stages, horizon, stage_properties, cfg, camera_view=0) -> None: # Camera_view can be changed from 0-4, 0 being FrontCamera, 1 BaseCamers, 2 LeftCamera, 3 GripperCameraBottom, 4 GripperCamera
         super().__init__(num_stages, horizon, stage_properties, cfg)
         self.task = 'open_drawer'
         self.grip_open = cfg.gripper_open[self.task]
         self.use_gpu_physics = False
+        self.frame_number = 0
+        self.camera_view = camera_view
+        self.episode_number = 0
 
-    def reset(self, robot_parameters, 
-              scene_parameters, 
+    def save_frame(self, frame_number, save_directory=Path('/media/local/atarek/3Dscene/test')): # Here we edit the saving location
+        try:
+            render_output = self.render()
+            if self.camera_view < len(render_output['images']):
+                rgb_data = render_output['images'][self.camera_view]['rgb']
+                image = Image.fromarray(rgb_data)
+                save_directory.mkdir(parents=True, exist_ok=True)
+                filename = f"camera_{self.camera_view}_frame_{frame_number:05d}.png"
+                image_path = save_directory / filename
+                image.save(image_path)
+            else:
+                logger.warning("Camera view index out of range.")
+        except Exception as e:
+            logger.error(f"Error saving frame: {e}")
+
+    def reset(self, robot_parameters,
+              scene_parameters,
               object_parameters,
               robot_base,
               gt_actions
-        ):
+              ):
 
         super().stop()
 
@@ -40,8 +61,8 @@ class OpenDrawer(BaseTask):
         self.robot_base = robot_base
 
         obs = super().reset(
-            robot_parameters = robot_parameters,
-            scene_parameters = scene_parameters
+            robot_parameters=robot_parameters,
+            scene_parameters=scene_parameters
         )
         # used for max mumber of steps (grasp, raise up)
         self.current_stage = 0
@@ -62,35 +83,36 @@ class OpenDrawer(BaseTask):
         index = 0
         self.objects_list = []
         param = self.object_parameter
-        
+
         object_prim_path = find_unique_string_name(
-            initial_name = f"/World_{index}/{param.object_type}",
-            is_unique_fn = lambda x: not is_prim_path_valid(x)
+            initial_name=f"/World_{index}/{param.object_type}",
+            is_unique_fn=lambda x: not is_prim_path_valid(x)
         )
 
         object_prim = add_reference_to_stage(param.usd_path, object_prim_path)
-    
+
         self._wait_for_loading()
 
         self.objects_list.append(object_prim)
-        
+
         position = param.object_position
         rotation = param.orientation_quat
-        
+
         # use this to set relative position, orientation and scale
-        xform_prim = XFormPrim(object_prim_path, translation= position, orientation = rotation, scale = np.array(param.scale))
+        xform_prim = XFormPrim(object_prim_path, translation=position, orientation=rotation,
+                               scale=np.array(param.scale))
         self._wait_for_loading()
 
         if param.object_physics_properties:
             set_physics_properties(self.stage, object_prim, param.object_physics_properties)
-            
+
         add_update_semantics(object_prim, param.object_type)
 
         # TODO
         # use issac sim default collision for handle processing. This is not needed if we apply Su Hao's method first
         if param.part_physics_properties:
             for keyword, properties in param.part_physics_properties.items():
-                
+
                 prim_list = get_all_matching_child_prims(object_prim_path, properties.properties[PREDICATE])
                 for sub_prim_path in prim_list:
                     try:
@@ -100,7 +122,7 @@ class OpenDrawer(BaseTask):
                         sub_prim = get_prim_at_path(sub_prim_path.GetPath().pathString)
                     set_physics_properties(self.stage, sub_prim, properties)
                     add_update_semantics(sub_prim, keyword)
-        
+
         if param.object_timeline_management is not None:
             self.checker = param.object_timeline_management
             self.checker.pre_initialize(object_prim_path)
@@ -143,7 +165,7 @@ class OpenDrawer(BaseTask):
         while self.current_stage < self.end_stage:
             if self.time_step % 120 == 0:
                 logger.info(f"tick: {self.time_step}")
-            
+
             if self.time_step >= self.horizon:
                 self.is_success = -1
                 break
@@ -163,7 +185,7 @@ class OpenDrawer(BaseTask):
 
                 elif self.current_stage == 1:
                     current_target = (self.trans_pick, self.rotat_pick, grip_open)
-                
+
                 else:
                     try:
                         trans_interp, rotation_interp = next(position_rotation_interp_iter)
@@ -173,9 +195,10 @@ class OpenDrawer(BaseTask):
                         position_rotation_interp_list = None
                         self.current_stage += 1
                         continue
-            
-            if position_reached( self.c_controller, current_target[0], self.robot, thres=(0.1 if self.current_stage == 1 else 0.5) ) \
-            and rotation_reached( self.c_controller, current_target[1] ):
+
+            if position_reached(self.c_controller, current_target[0], self.robot,
+                                thres=(0.1 if self.current_stage == 1 else 0.5)) \
+                    and rotation_reached(self.c_controller, current_target[1]):
                 gripper_state = self.gripper_controller.get_joint_positions()
                 current_gripper_open = (gripper_state[0] + gripper_state[1] > 7)
 
@@ -186,7 +209,7 @@ class OpenDrawer(BaseTask):
                             articulation_controller = self.robot.get_articulation_controller()
                             articulation_controller.apply_action(target_joint_positions_gripper)
                             simulation_context.step(render=render)
-                        
+
                     else:
                         target_joint_positions_gripper = self.gripper_controller.forward(action="open")
                         for _ in range(self.cfg.gripper_trigger_period):
@@ -198,7 +221,7 @@ class OpenDrawer(BaseTask):
                 if self.current_stage < 2:
                     self.current_stage += 1
                     logger.info(f"enter stage {self.current_stage}")
-            
+
             else:
                 target_joint_positions = self.c_controller.forward(
                     target_end_effector_position=current_target[0], target_end_effector_orientation=current_target[1]
@@ -206,11 +229,14 @@ class OpenDrawer(BaseTask):
                 if self.current_stage >= 2:
                     # close force
                     target_joint_positions.joint_positions[-2:] = -1
-                
+
                 articulation_controller = self.robot.get_articulation_controller()
                 articulation_controller.apply_action(target_joint_positions)
 
             simulation_context.step(render=render)
+            self.time_step += 1
+            self.save_frame(self.frame_number) # calling the savingFrames method
+            self.frame_number += 1
             self.time_step += 1
 
         if self.current_stage == self.num_stages:
@@ -220,5 +246,5 @@ class OpenDrawer(BaseTask):
                 if self.checker.success:
                     self.is_success = 1
                     break
-        
+
         return self.render(), self.is_success
