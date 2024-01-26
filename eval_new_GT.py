@@ -25,15 +25,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def load_data(data_path):
-    demos = list(Path(data_path).iterdir())
-    demo_path = sorted([str(item) for item in demos if not item.is_dir()])
+def load_data(npz_file_paths):
     data = []
     fnames = []
 
-    for npz_path in demo_path:
+    for npz_path in npz_file_paths:
         data.append(np.load(npz_path, allow_pickle=True))
         fnames.append(npz_path)
+
     return data, fnames
 
 
@@ -87,12 +86,47 @@ def main(cfg):
 
     offset = cfg.offset_bound
     use_gt = cfg.use_gt
+
+    npz_files_list = [
+        '/media/local/atarek/arnold/data_root/pickup_object/test/AWS-pickup_object-0-0--1-10-2-Thu_Jan_26_21:52:33_2023.npz',
+        '/media/local/atarek/arnold/data_root/pickup_object/test/AWS-pickup_object-0-0--1-10-2-Thu_Jan_26_21:51:14_2023.npz',
+
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_object/AWS-pickup_object-8-0--1-10-2-Fri_Jan_27_00:51:01_2023.npz',
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_object/AWS-pickup_object-8-0--1-10-2-Fri_Jan_27_00:51:10_2023.npz',
+
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_scene/AWS-pickup_object-0-0--1-10-17-Thu_Jan_26_21:49:28_2023.npz',
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_scene/AWS-pickup_object-0-0--1-10-17-Thu_Jan_26_21:49:35_2023.npz',
+
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_state/AWS-pickup_object-0-0--1-40-0-Thu_Jan_26_21:46:04_2023.npz',
+        '/media/local/atarek/arnold/data_root/pickup_object/novel_state/AWS-pickup_object-0-0--1-40-0-Thu_Jan_26_21:46:09_2023.npz',
+
+        '/media/local/atarek/arnold/data_root/pickup_object/any_state/AWS-pickup_object-0-0--1-5-2-Thu_Jan_26_21:52:33_2023.npz',
+        '/media/local/atarek/arnold/data_root/pickup_object/any_state/AWS-pickup_object-0-0--1-6-12-Thu_Jan_26_21:47:28_2023.npz'
+    ]
+
     # The new customized GT
+    # The updated customized GT actions
     custom_gt_actions = [
-        {'position': np.array([-139.99121646, 39.00437595, 230.71569229]), 'rotation': np.array([-0.6362744, -0.254779, -0.27688039, 0.67348333]), 'gripper_open': True},
-        {'position': np.array([-110.78059272, 67.96093725, 248.84986575]), 'rotation': np.array([5.26848039e-03, -2.77134877e-04, -3.24359613e-05, 9.99986083e-01]), 'gripper_open': True},
-        {'position': np.array([-110.74540208, 67.94614116, 245.47076676]), 'rotation': np.array([-1.16984947e-04, 1.20812065e-04, -2.03216835e-05, 9.99999986e-01]), 'gripper_open': False},
-        {'position': np.array([-110.75491552, 67.95271131, 245.47611419]), 'rotation': np.array([-6.37355032e-05, 7.36693494e-05, 9.98550036e-05, 9.99999990e-01]), 'gripper_open': False}
+        {
+            'position': np.array([37.69090066, 38.80074032, -123.0192727]),
+            'rotation': np.array([90, 45, -180]),
+            'gripper_open': True
+        },
+        {
+            'position': np.array([27.92788092, 16.68336187, -87.80603979]),
+            'rotation': np.array([90, 45, -180]),
+            'gripper_open': False
+        },
+        {
+            'position': np.array([27.96925554, 16.76348282, -87.792103]),
+            'rotation': np.array([90, 45, -180]),
+            'gripper_open': False
+        },
+        {
+            'position': np.array([28.00880374, 26.51387997, -87.85955557]),
+            'rotation': np.array([90, 45, -180]),
+            'gripper_open': False
+        }
     ]
 
     if not (use_gt[0] and use_gt[1]):
@@ -131,7 +165,7 @@ def main(cfg):
             if os.path.exists(os.path.join(cfg.data_root, task, eval_split)):
                 logger.info(f'Evaluating {task} {eval_split}')
                 eval_log.append(f'Evaluating {task} {eval_split}\n')
-                data, fnames = load_data(data_path=os.path.join(cfg.data_root, task, eval_split))
+                data, fnames = load_data(npz_files_list)
             else:
                 logger.info(f'{eval_split} not exist')
                 eval_log.append(f'{eval_split} not exist\n')
